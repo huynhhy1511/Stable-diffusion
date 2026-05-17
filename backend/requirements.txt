@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+websockets
+python-dotenv
+aiohttp
+torch
+torchvision
+numpy
+pillow
+sqlalchemy
+passlib[bcrypt]
+python-jose[cryptography]

@@ -1,0 +1,70 @@
+# ==========================================
+# Root .gitignore for AI Image Creative Studio
+# ==========================================
+
+# --- Python & Backend ---
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+backend/venv_new/
+backend/.venv/
+.venv/
+venv/
+ENV/
+env/
+backend/app_data.db
+backend/*.db
+backend/*.sqlite3
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# --- Node.js & Frontend ---
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# --- OS & Editor Files ---
+.DS_Store
+Thumbs.db
+.vscode/
+frontend/.vscode/
+.idea/
+frontend/.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.bak
+*.tmp
+
+# --- AI Models ---
+# Ignore model weight files, but keep directory structure
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+models/loras/*
+!models/loras/.gitkeep
+models/sam/*
+!models/sam/.gitkeep
+
+# --- Storage & Output ---
+# Ignore generated outputs, uploads and masks, but keep directory structure
+storage/masks/*
+!storage/masks/.gitkeep
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/outputs/*
+!storage/outputs/.gitkeep
