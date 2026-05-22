@@ -14,6 +14,10 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [currentJobId, setCurrentJobId] = useState(null);
+  const [invertMask, setInvertMask] = useState(false);
+  const [selectionLevel, setSelectionLevel] = useState('coarse');
+  const [denoise, setDenoise] = useState(0.55); // 0.55 default for local edits (e.g. face)
+  const [magicPrompt, setMagicPrompt] = useState(true);
 
   const fileInputRef = useRef(null);
   const wsRef = useRef(null);
@@ -61,6 +65,7 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
     setOriginalUrl(null);
     setMaskUrl(null);
     setInpaintPrompt('');
+    setInvertMask(false);
   };
 
   // 3. Xử lý khi bóc được Mask thành công từ MobileSAM
@@ -83,6 +88,7 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
       const formData = new FormData();
       formData.append('x', x);
       formData.append('y', y);
+      formData.append('level', selectionLevel);
 
       if (file) {
         formData.append('image', file);
@@ -95,8 +101,7 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
 
       const res = await axios.post('http://localhost:8000/api/editor/sam/segment', formData, {
         headers: {
-          ...apiConfig.headers,
-          'Content-Type': 'multipart/form-data'
+          ...apiConfig.headers
         }
       });
 
@@ -110,21 +115,64 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
     }
   };
 
+  // Hỗ trợ chọn toàn bộ bức tranh (tạo 100% white mask)
+  const handleSelectAll = async () => {
+    if (!file && !initialImageUrl) {
+      alert("Vui lòng tải ảnh lên trước!");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      if (file) {
+        formData.append('image', file);
+      } else {
+        const responseImg = await fetch(localImageUrl);
+        const blob = await responseImg.blob();
+        formData.append('image', blob, 'chat_image.png');
+      }
+
+      const res = await axios.post('http://localhost:8000/api/editor/sam/full', formData, {
+        headers: {
+          ...apiConfig.headers
+        }
+      });
+
+      setOriginalUrl(res.data.original_url);
+      setMaskUrl(res.data.mask_url);
+      // Đặt slider denoise lên cao để chuyển phong cách toàn ảnh đẹp hơn
+      setDenoise(0.9); 
+    } catch (err) {
+      console.error("Lỗi chọn toàn bộ ảnh:", err);
+      alert("Không thể chọn toàn bộ ảnh!");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // 4. Kích hoạt tính năng Inpaint vùng đã tô đỏ
   const handleInpaint = async () => {
     if (!originalUrl || !maskUrl || !inpaintPrompt.trim() || isProcessing) {
-      alert("Vui lòng bóc lớp vùng chọn (click lên ảnh) và nhập prompt phụ!");
+      alert("Vui lòng bóc lớp vùng chọn (click lên ảnh hoặc Chọn toàn ảnh) và nhập mô tả!");
       return;
     }
 
     setIsProcessing(true);
     setProgress(0);
 
+    let promptToSend = inpaintPrompt;
+    if (magicPrompt) {
+      promptToSend = `${inpaintPrompt}, highly detailed, matching style, masterpiece, 8k resolution`;
+    }
+
     try {
       const res = await axios.post('http://localhost:8000/api/editor/inpaint', {
         original_url: originalUrl,
         mask_url: maskUrl,
-        prompt: inpaintPrompt
+        prompt: promptToSend,
+        invert_mask: invertMask,
+        denoise: denoise
       }, apiConfig);
 
       const { job_id } = res.data;
@@ -214,6 +262,7 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
               <ImageEditor 
                 imageUrl={localImageUrl}
+                maskUrl={maskUrl}
                 onMaskGenerated={handleMaskGenerated}
                 // Custom override bọc chức năng SAM bóc tách ảnh
                 customSAM={customFetchMask}
@@ -224,6 +273,7 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
                   setOriginalUrl(null);
                   setMaskUrl(null);
                   setFile(null);
+                  setInvertMask(false);
                 }}
                 className="premium-btn-secondary" 
                 style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -247,10 +297,142 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
             <Wand2 size={18} style={{ color: 'var(--primary)' }} /> Studio Chỉnh Sửa
           </h3>
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-            1. Click chuột trực tiếp vào một vật thể bất kỳ trên Canvas để AI tự động tạo lớp phủ mờ bọc đối tượng.
-            <br /><br />
-            2. Nhập mô tả mới cho đối tượng đó ở bên dưới để thay đổi nội dung (Inpaint).
+            1. Chọn cấp độ chọn, click chuột lên ảnh (hoặc bấm chọn "Toàn ảnh").
+            <br />
+            2. Nhập mô tả mới ở dưới để thay đổi nội dung ảnh.
           </p>
+
+          {/* CẤP ĐỘ VÙNG CHỌN (SAM LEVEL SELECTOR) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#ccc', letterSpacing: '0.5px' }}>
+              CẤP ĐỘ VÙNG CHỌN
+            </label>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr',
+              gap: '6px',
+              background: 'rgba(255, 255, 255, 0.01)', 
+              borderRadius: '12px', 
+              padding: '4px',
+            }}>
+              <button 
+                onClick={() => setSelectionLevel('fine')}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  border: selectionLevel === 'fine' ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.05)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  background: selectionLevel === 'fine' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255,255,255,0.02)',
+                  color: selectionLevel === 'fine' ? 'var(--primary)' : '#aaa',
+                }}
+                title="Dành cho chi tiết nhỏ như mặt, ngón tay..."
+              >
+                🔍 Chi tiết
+              </button>
+              <button 
+                onClick={() => setSelectionLevel('medium')}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  border: selectionLevel === 'medium' ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.05)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  background: selectionLevel === 'medium' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255,255,255,0.02)',
+                  color: selectionLevel === 'medium' ? 'var(--primary)' : '#aaa',
+                }}
+                title="Dành cho bộ phận như áo, quần, tóc..."
+              >
+                👕 Bộ phận
+              </button>
+              <button 
+                onClick={() => setSelectionLevel('coarse')}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  border: selectionLevel === 'coarse' ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.05)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  background: selectionLevel === 'coarse' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255,255,255,0.02)',
+                  color: selectionLevel === 'coarse' ? 'var(--primary)' : '#aaa',
+                }}
+                title="Gom toàn bộ người hoặc chủ thể chính"
+              >
+                🧍 Cơ thể
+              </button>
+              <button 
+                onClick={handleSelectAll}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  border: maskUrl && !invertMask && !file ? '1px solid var(--secondary)' : '1px solid rgba(255,255,255,0.05)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  background: 'rgba(255,255,255,0.02)',
+                  color: '#fff',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--secondary)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+                }}
+                title="Chọn toàn bộ bức tranh để chuyển đổi phong cách"
+              >
+                🖼️ Toàn ảnh
+              </button>
+            </div>
+          </div>
+
+          {/* CẤU HÌNH SÁNG TẠO */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '8px', 
+            background: 'rgba(255, 255, 255, 0.02)', 
+            border: '1px solid rgba(255, 255, 255, 0.05)', 
+            borderRadius: '12px', 
+            padding: '12px' 
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '11px', fontWeight: '700', color: '#ccc' }}>MAGIC PROMPT</label>
+              <input 
+                type="checkbox" 
+                checked={magicPrompt}
+                onChange={(e) => setMagicPrompt(e.target.checked)}
+                style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: 'var(--primary)' }}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#ccc' }}>
+                <span style={{ fontWeight: '700' }}>SỨC MẠNH SÁNG TẠO</span>
+                <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{denoise}</span>
+              </div>
+              <input 
+                type="range"
+                min="0.15"
+                max="1.0"
+                step="0.05"
+                value={denoise}
+                onChange={(e) => setDenoise(parseFloat(e.target.value))}
+                style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--primary)' }}
+              />
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)', lineHeight: '1.2' }}>
+                * Thấp (0.3-0.5) giữ khung vẽ cũ; Cao (0.8-0.95) để vẽ lại hoàn toàn.
+              </span>
+            </div>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
             <label style={{ fontSize: '12px', fontWeight: '700', color: '#ccc' }}>PROMPT CHỈNH SỬA</label>
@@ -264,6 +446,21 @@ const CanvasInterface = ({ token, initialImageUrl }) => {
               disabled={isProcessing || !maskUrl}
             />
           </div>
+
+          {maskUrl && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', marginBottom: '5px' }}>
+              <input 
+                type="checkbox" 
+                id="invertMask"
+                checked={invertMask}
+                onChange={(e) => setInvertMask(e.target.checked)}
+                style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: 'var(--primary)' }}
+              />
+              <label htmlFor="invertMask" style={{ fontSize: '12px', fontWeight: '600', color: '#ddd', cursor: 'pointer', userSelect: 'none' }}>
+                Đảo ngược vùng chọn (Sửa nền)
+              </label>
+            </div>
+          )}
 
           <button 
             onClick={handleInpaint}

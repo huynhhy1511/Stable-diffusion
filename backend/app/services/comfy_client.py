@@ -34,6 +34,21 @@ class ComfyUIClient:
             async with session.get(url) as response:
                 return await response.json()
 
+    async def upload_image(self, file_bytes: bytes, filename: str) -> None:
+        """Tải ảnh lên ComfyUI server qua API /upload/image"""
+        url = f"http://{self.server_address}/upload/image"
+        
+        data = aiohttp.FormData()
+        data.add_field('image', file_bytes, filename=filename, content_type='image/png')
+        data.add_field('overwrite', 'true')
+        data.add_field('type', 'input')
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=data) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    raise Exception(f"Không thể upload ảnh lên ComfyUI: {text}")
+
     async def queue_prompt(self, prompt_workflow: Dict[str, Any]) -> str:
         """Gửi Workflow JSON lên ComfyUI queue"""
         payload = {"prompt": prompt_workflow, "client_id": self.client_id}
@@ -42,6 +57,13 @@ class ComfyUIClient:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
                 data = await response.json()
+                if 'prompt_id' not in data:
+                    error_info = data.get('error', {})
+                    error_msg = error_info.get('message', 'Không rõ nguyên nhân')
+                    node_errors = data.get('node_errors', {})
+                    if node_errors:
+                        error_msg += f" (Chi tiết lỗi node: {node_errors})"
+                    raise Exception(f"ComfyUI từ chối workflow: {error_msg}")
                 return data['prompt_id']
 
     async def generate_and_wait(self, prompt_workflow: Dict[str, Any], progress_queue: Optional[asyncio.Queue] = None) -> List[bytes]:

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Canvas, FabricImage } from 'fabric';
 import axios from 'axios';
 
-const ImageEditor = ({ imageUrl, onMaskGenerated, customSAM }) => {
+const ImageEditor = ({ imageUrl, maskUrl, onMaskGenerated, customSAM }) => {
   const canvasRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -67,31 +67,80 @@ const ImageEditor = ({ imageUrl, onMaskGenerated, customSAM }) => {
       });
   }, [canvas, imageUrl]);
 
-  // 3. ĐĂNG KÝ SỰ KIỆN CLICK CHUỘT TRÊN CANVAS
+  // 3. LẮNG NGHE maskUrl ĐỂ THAY ĐỔI MẶT NẠ TRÊN CANVAS REACTIVE
+  useEffect(() => {
+    if (!canvas) return;
+
+    if (!maskUrl) {
+      // Nếu maskUrl bị xóa (null), dọn sạch mask cũ trên canvas
+      canvas.getObjects().forEach((obj) => {
+        if (obj.id === 'sam-mask') {
+          canvas.remove(obj);
+        }
+      });
+      canvas.requestRenderAll();
+      return;
+    }
+
+    // Vẽ mask mới lên canvas
+    drawMaskOnCanvas(maskUrl);
+  }, [canvas, maskUrl, scaleFactor]);
+
+  // 4. ĐĂNG KÝ SỰ KIỆN CLICK CHUỘT TRÊN CANVAS
   useEffect(() => {
     if (!canvas) return;
 
     const handleMouseDown = async (options) => {
-      if (isProcessing) return;
+      try {
+        if (isProcessing) return;
 
-      // Lấy tọa độ click chuẩn chỉ Fabric v7
-      const pointer = canvas.getScenePoint ? canvas.getScenePoint(options.e) : canvas.getPointer(options.e);
-      
-      // Quy đổi tọa độ về kích thước ảnh gốc
-      const originalX = Math.round(pointer.x / scaleFactor);
-      const originalY = Math.round(pointer.y / scaleFactor);
-
-      console.log(`Clicked coords: (${originalX}, ${originalY})`);
-      
-      if (customSAM) {
-        setIsProcessing(true);
-        const resMaskUrl = await customSAM(originalX, originalY);
-        setIsProcessing(false);
-        if (resMaskUrl) {
-          drawMaskOnCanvas(resMaskUrl);
+        // Check if options is defined
+        if (!options) {
+          console.warn("Fabric options is undefined");
+          return;
         }
-      } else {
-        await fetchMask(originalX, originalY);
+
+        // Extract coordinates supporting Fabric v7 scenePoint / options.pointer or DOM fallback
+        let pointer = null;
+        if (options.scenePoint) {
+          pointer = options.scenePoint;
+        } else if (options.pointer) {
+          pointer = options.pointer;
+        } else if (options.e) {
+          // Robust DOM fallback
+          const canvasElement = canvas.getElement ? canvas.getElement() : null;
+          if (canvasElement) {
+            const rect = canvasElement.getBoundingClientRect();
+            pointer = {
+              x: options.e.clientX - rect.left,
+              y: options.e.clientY - rect.top
+            };
+          } else {
+            pointer = { x: 0, y: 0 };
+          }
+        } else {
+          pointer = { x: 0, y: 0 };
+        }
+        
+        // Quy đổi tọa độ về kích thước ảnh gốc
+        const originalX = Math.round(pointer.x / scaleFactor);
+        const originalY = Math.round(pointer.y / scaleFactor);
+
+        console.log(`Clicked coords: (${originalX}, ${originalY})`);
+        
+        if (customSAM) {
+          setIsProcessing(true);
+          const resMaskUrl = await customSAM(originalX, originalY);
+          setIsProcessing(false);
+          if (resMaskUrl && onMaskGenerated) {
+            onMaskGenerated(resMaskUrl);
+          }
+        } else {
+          await fetchMask(originalX, originalY);
+        }
+      } catch (err) {
+        console.error("Lỗi click canvas:", err);
+        alert("Lỗi click canvas: " + err.message + "\n" + err.stack);
       }
     };
 
@@ -131,10 +180,6 @@ const ImageEditor = ({ imageUrl, onMaskGenerated, customSAM }) => {
         
         canvas.add(maskImg);
         canvas.requestRenderAll();
-        
-        if (onMaskGenerated) {
-          onMaskGenerated(mask_url);
-        }
       })
       .catch((err) => {
         console.error("Lỗi nạp ảnh Mask:", err);
@@ -156,7 +201,9 @@ const ImageEditor = ({ imageUrl, onMaskGenerated, customSAM }) => {
       const res = await axios.post('http://localhost:8000/api/editor/sam/segment', formData);
       const { mask_url } = res.data;
       
-      drawMaskOnCanvas(mask_url);
+      if (onMaskGenerated) {
+        onMaskGenerated(mask_url);
+      }
       
     } catch (err) {
       console.error("Lỗi khi lấy mask:", err);
@@ -173,7 +220,9 @@ const ImageEditor = ({ imageUrl, onMaskGenerated, customSAM }) => {
           <p style={{ fontWeight: 'bold' }} className="text-slate-800 text-xs tracking-wider uppercase animate-pulse">Đang nạp AI Mask...</p>
         </div>
       )}
-      <canvas ref={canvasRef} />
+      <div className="canvas-wrapper">
+        <canvas ref={canvasRef} />
+      </div>
     </div>
   );
 };

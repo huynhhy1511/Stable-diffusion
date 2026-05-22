@@ -21,7 +21,7 @@ function App() {
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [cfgScale, setCfgScale] = useState(7.0);
   const [steps, setSteps] = useState(20);
-  const [selectedModel, setSelectedModel] = useState('dreamshaper_8.safetensors');
+  const [selectedModel, setSelectedModel] = useState('my_model.safetensors');
 
   // Direct image passing between T2I Chat and SAM Inpainting Canvas
   const [canvasInitialImage, setCanvasInitialImage] = useState(null);

@@ -25,32 +25,32 @@ class MobileSAMService:
         
     def load_model(self):
         if SamPredictor is None or torch is None or np is None:
-            print("⚠️ CẢNH BÁO: Thư viện torch, numpy hoặc mobile-sam chưa cài đặt hoàn chỉnh!")
+            print("[WARNING] torch, numpy, or mobile-sam is not fully installed!")
             return
             
         model_type = "vit_t"
         sam_checkpoint = "../models/sam/mobile_sam.pt" # Đường dẫn model weight đã chuẩn bị sẵn
         
         if not os.path.exists(sam_checkpoint):
-            print(f"Không tìm thấy file weight của SAM tại {sam_checkpoint}")
+            print(f"[WARNING] SAM model weights not found at {sam_checkpoint}")
             return
             
         mobile_sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
         mobile_sam.to(device=self.device)
         mobile_sam.eval()
         self.predictor = SamPredictor(mobile_sam)
-        print("✅ Đã nạp MobileSAM lên CPU thành công!")
+        print("Loaded MobileSAM on CPU successfully!")
 
-    def segment(self, image_path: str, x: int, y: int) -> Image.Image:
+    def segment(self, image_path: str, x: int, y: int, level: str = "coarse") -> Image.Image:
         # Nếu chưa cài đặt đủ thư viện nặng, trả về Mock Mask để chạy thử giao diện
         if SamPredictor is None or torch is None or np is None:
-            print("Bypass chạy SAM (Chế độ Mocking do thiếu thư viện torch/numpy/mobile-sam).")
+            print("Bypass SAM (Mocking mode due to missing torch/numpy/mobile-sam).")
             return Image.new('L', (512, 512), 0)
 
         if not self.predictor:
             self.load_model()
             if not self.predictor:
-                print("Mocking Mask vì chưa nạp được file model weights.")
+                print("Mocking Mask because model weights could not be loaded.")
                 return Image.new('L', (512, 512), 0)
                 
         image = Image.open(image_path).convert("RGB")
@@ -66,11 +66,19 @@ class MobileSAMService:
         masks, scores, logits = self.predictor.predict(
             point_coords=input_point,
             point_labels=input_label,
-            multimask_output=False, # Ta chỉ cần 1 mask chính xác nhất
+            multimask_output=True, # Dự đoán đa cấp độ (chi tiết, bộ phận, toàn bộ)
         )
         
-        # masks trả về mảng boolean shape (1, H, W). Chuyển sang ảnh Trắng(255) / Đen(0)
-        mask = masks[0]
+        # Chọn mask theo cấp độ người dùng yêu cầu
+        if level == "fine":
+            mask = masks[0]
+        elif level == "medium":
+            mask = masks[1]
+        else: # coarse
+            # Sắp xếp các mask theo diện tích tăng dần và lấy lớn nhất
+            sorted_masks = sorted(masks, key=lambda m: np.sum(m))
+            mask = sorted_masks[-1]
+            
         mask_image_array = (mask * 255).astype(np.uint8)
         mask_image = Image.fromarray(mask_image_array, mode='L')
         

@@ -19,6 +19,9 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [currentJobId, setCurrentJobId] = useState(null);
+  const [invertMask, setInvertMask] = useState(false);
+  const [selectionLevel, setSelectionLevel] = useState('coarse');
+  const [denoise, setDenoise] = useState(0.85);
 
   const fileInputRef = useRef(null);
   const wsRef = useRef(null);
@@ -60,6 +63,7 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
     setOriginalUrl(null);
     setMaskUrl(null);
     setInputPrompt('');
+    setInvertMask(false);
   };
 
   const handleMaskGenerated = (generatedMaskUrl) => {
@@ -76,6 +80,7 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
       const formData = new FormData();
       formData.append('x', x);
       formData.append('y', y);
+      formData.append('level', selectionLevel);
 
       if (file) {
         formData.append('image', file);
@@ -87,8 +92,7 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
 
       const res = await axios.post('http://localhost:8000/api/editor/sam/segment', formData, {
         headers: {
-          ...apiConfig.headers,
-          'Content-Type': 'multipart/form-data'
+          ...apiConfig.headers
         }
       });
 
@@ -99,6 +103,40 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
       console.error(err);
       alert("Không lấy được mask từ SAM!");
       return null;
+    }
+  };
+
+  const handleSelectAll = async () => {
+    if (!file && !localImageUrl) {
+      alert("Vui lòng tải ảnh lên trước!");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      if (file) {
+        formData.append('image', file);
+      } else {
+        const responseImg = await fetch(localImageUrl);
+        const blob = await responseImg.blob();
+        formData.append('image', blob, 'image.png');
+      }
+
+      const res = await axios.post('http://localhost:8000/api/editor/sam/full', formData, {
+        headers: {
+          ...apiConfig.headers
+        }
+      });
+
+      setOriginalUrl(res.data.original_url);
+      setMaskUrl(res.data.mask_url);
+      setDenoise(0.95); // High denoise for full styling
+    } catch (err) {
+      console.error("Lỗi chọn toàn bộ ảnh:", err);
+      alert("Không thể chọn toàn bộ ảnh!");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -122,6 +160,8 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
         original_url: originalUrl,
         mask_url: maskUrl,
         prompt: promptToSend,
+        invert_mask: invertMask,
+        denoise: denoise,
         // Các tham số cài đặt cao cấp
         aspect_ratio: aspectRatio,
         cfg_scale: cfgScale,
@@ -193,6 +233,7 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
           <div className="flex flex-col items-center gap-4">
             <ImageEditor
               imageUrl={localImageUrl}
+              maskUrl={maskUrl}
               onMaskGenerated={handleMaskGenerated}
               customSAM={customFetchMask}
             />
@@ -202,6 +243,7 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
                 setOriginalUrl(null);
                 setMaskUrl(null);
                 setFile(null);
+                setInvertMask(false);
               }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-gray-100 bg-slate-50 text-[11px] font-bold text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all shadow-sm"
             >
@@ -252,10 +294,82 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
           </div>
         )}
 
+        {maskUrl && (
+          <div className="px-4 py-3 bg-slate-50/30 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 w-full sm:w-auto flex-1 max-w-md">
+              <div className="flex flex-col min-w-[120px]">
+                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Sức mạnh sáng tạo</span>
+                <span className="text-[9px] text-slate-400">Denoise strength: {denoise}</span>
+              </div>
+              <input
+                type="range"
+                min="0.15"
+                max="1.0"
+                step="0.05"
+                value={denoise}
+                onChange={(e) => setDenoise(parseFloat(e.target.value))}
+                className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900"
+              />
+              <span className="text-xs font-bold text-slate-900 w-8 text-right">{denoise}</span>
+            </div>
+            <div className="text-[10px] text-slate-400 font-medium">
+              💡 {denoise < 0.6 ? "Thấp (0.3-0.5): Giữ nét cũ, đổi chi tiết" : "Cao (0.8-1.0): Vẽ lại mạnh mẽ, đổi phong cách"}
+            </div>
+          </div>
+        )}
+
         <div className="h-[1px] bg-slate-100 w-full"></div>
 
         <div className="px-3 py-2 bg-slate-50/50 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
+            {/* Cấp độ vùng chọn SAM */}
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 mr-1">
+              <button
+                onClick={() => setSelectionLevel('fine')}
+                className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all ${
+                  selectionLevel === 'fine'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Sửa chi tiết nhỏ (khuôn mặt, tay...)"
+              >
+                🔍 Chi tiết
+              </button>
+              <button
+                onClick={() => setSelectionLevel('medium')}
+                className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all ${
+                  selectionLevel === 'medium'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Sửa bộ phận (áo, quần...)"
+              >
+                👕 Bộ phận
+              </button>
+              <button
+                onClick={() => setSelectionLevel('coarse')}
+                className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all ${
+                  selectionLevel === 'coarse'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Sửa toàn bộ hoặc tách nền"
+              >
+                🧍 Toàn bộ
+              </button>
+              <button
+                onClick={handleSelectAll}
+                className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all ${
+                  maskUrl && !invertMask && !file
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+                title="Chọn toàn bộ bức tranh để chuyển đổi phong cách"
+              >
+                🖼️ Toàn ảnh
+              </button>
+            </div>
+
             <button
               onClick={() => fileInputRef.current.click()}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition text-[10px] font-bold"
@@ -283,6 +397,18 @@ const StudioView = ({ token, initialImageUrl, aspectRatio, cfgScale, steps, sele
               }`}
             >
               <Sparkles size={11} className={magicPrompt ? 'text-violet-500' : 'text-slate-400'} /> Magic Prompt
+            </button>
+
+            <button
+              onClick={() => setInvertMask(!invertMask)}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition ${
+                invertMask
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-600'
+                  : 'border-slate-100 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900'
+              }`}
+              disabled={!maskUrl}
+            >
+              🔄 Đảo ngược (Sửa nền)
             </button>
           </div>
 

@@ -19,10 +19,10 @@ const SettingsPanel = ({
   ];
 
   const models = [
-    { id: 'sd_xl_base_1.0.safetensors', name: 'SDXL Base 1.0' },
-    { id: 'dreamshaper_8.safetensors', name: 'Dreamshaper 8' },
-    { id: 'v1-5-pruned-emaonly.safetensors', name: 'Stable Diffusion v1.5' },
+    { id: 'my_model.safetensors', name: 'Nhóm 3 - Mô hình tự huấn luyện' },
+    { id: 'dreamshaper_8.safetensors', name: 'Dreamshaper 8 (Mô hình nền gốc)' },
   ];
+
 
   return (
     <div className="w-80 border-l border-gray-100 bg-[#f4f5f8] h-full flex flex-col p-5 flex-shrink-0 select-none overflow-y-auto font-sans">

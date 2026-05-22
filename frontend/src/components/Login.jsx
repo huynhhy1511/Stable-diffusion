@@ -18,9 +18,7 @@ const Login = ({ onLoginSuccess, onSwitchToRegister }) => {
       formData.append('username', username);
       formData.append('password', password);
 
-      const res = await axios.post('http://localhost:8000/api/auth/login', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const res = await axios.post('http://localhost:8000/api/auth/login', formData);
       
       const { access_token, username: loggedInUser } = res.data;
       localStorage.setItem('token', access_token);
