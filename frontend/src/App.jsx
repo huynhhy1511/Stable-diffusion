@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import Login from './components/Login';
 import Register from './components/Register';
 import Sidebar from './components/Sidebar';
@@ -39,6 +40,24 @@ function App() {
     setCanvasInitialImage(null);
     setActiveTab('chat');
   };
+
+  // Cấu hình Axios Interceptor toàn cục để phát hiện lỗi 401 (Token hết hạn/Không hợp lệ từ dự án khác chạy cùng port 5173)
+  // và tự động đăng xuất người dùng để tránh bị kẹt màn hình lỗi.
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response && error.response.status === 401) {
+          console.warn("Phát hiện Token không hợp lệ hoặc hết hạn. Đang tự động đăng xuất...");
+          handleLogout();
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, []);
 
   const handleSendToCanvas = (imageUrl) => {
     setCanvasInitialImage(imageUrl);
